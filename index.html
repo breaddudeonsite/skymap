@@ -202,6 +202,41 @@
     padding: 3px 7px;
   }
 
+  /* ---------- Discovery banner ---------- */
+  .discovery-banner {
+    position: absolute;
+    top: 78px;
+    left: 50%;
+    transform: translate(-50%, -14px);
+    z-index: 32;
+    pointer-events: none;
+    text-align: center;
+    padding: 10px 22px;
+    background: var(--panel-bg);
+    border: 1.5px solid var(--gold-bright);
+    border-radius: 4px;
+    box-shadow: 0 4px 14px var(--shadow);
+    opacity: 0;
+    transition: opacity 0.6s ease, transform 0.6s ease;
+  }
+  .discovery-banner.show {
+    opacity: 1;
+    transform: translate(-50%, 0);
+  }
+  .discovery-banner .db-label {
+    font-family: 'Cinzel', serif;
+    font-size: 10px;
+    letter-spacing: 0.22em;
+    color: var(--ink-soft);
+  }
+  .discovery-banner .db-name {
+    font-family: 'Cinzel', serif;
+    font-size: 18px;
+    font-weight: 700;
+    color: var(--gold-bright);
+    margin-top: 2px;
+  }
+
   /* ---------- Bottom control panel ---------- */
   #panel {
     position: absolute;
@@ -271,6 +306,12 @@
     color: var(--leather-dark);
     border-color: var(--leather-dark);
     font-weight: 700;
+  }
+  .ft-chip.ft-locked {
+    background: transparent;
+    color: var(--ink-soft);
+    border-style: dashed;
+    opacity: 0.65;
   }
 
   .row { display: flex; gap: 8px; margin-bottom: 8px; }
@@ -532,6 +573,11 @@
     </svg>
   </div>
 
+  <div class="discovery-banner" id="discoveryBanner">
+    <div class="db-label">Location Discovered</div>
+    <div class="db-name" id="discoveryName"></div>
+  </div>
+
   <div id="panel">
     <div class="panel-handle" id="panelHandle"><div class="bar"></div></div>
 
@@ -622,6 +668,16 @@
   const FROM_ICON = shieldIcon('#3c7a4f');
   const TO_ICON = shieldIcon('#7a2a22');
   const LOCATE_ICON = L.divIcon({ className: 'atlas-marker', html: '<div class="locate-pulse"></div>', iconSize: [16,16], iconAnchor: [8,8] });
+  const KNOWN_PLACE_ICON = L.divIcon({
+    className: 'atlas-marker',
+    html: `<svg width="22" height="28" viewBox="0 0 30 38" xmlns="http://www.w3.org/2000/svg">
+      <path d="M15 2 L27 8 L27 19 C27 28 15 36 15 36 C15 36 3 28 3 19 L3 8 Z" fill="#c99a3e" stroke="#150d05" stroke-width="2.4"/>
+    </svg>`,
+    iconSize: [22, 28],
+    iconAnchor: [11, 26]
+  });
+  const knownPlacesLayer = L.layerGroup().addTo(map);
+  const knownPlaceMarkers = {};
 
   // ---------------- State ----------------
   const state = {
@@ -631,7 +687,8 @@
     routeLayers: [],
     activeSuggestBox: null,
     navWatchId: null,
-    navMarker: null
+    navMarker: null,
+    discovered: loadDiscovered()
   };
 
   // ---------------- Geocoding (Nominatim) ----------------
@@ -731,40 +788,122 @@
 
   // ---------------- Fast travel: known holds & landmarks ----------------
   const FAST_TRAVEL_PLACES = [
-    { icon: '🏰', name: 'Downtown Barrie',    label: 'Downtown Barrie',            lat: 44.3894, lon: -79.6903 },
-    { icon: '🏖️', name: 'Centennial Beach',   label: 'Centennial Beach, Barrie',    lat: 44.3855, lon: -79.6822 },
-    { icon: '🏟️', name: 'Molson Centre',      label: 'Barrie Molson Centre',        lat: 44.3902, lon: -79.6870 },
-    { icon: '🎓', name: 'Georgian College',   label: 'Georgian College, Barrie',    lat: 44.3765, lon: -79.6608 },
-    { icon: '⚕️', name: 'RVH',                label: 'Royal Victoria Regional Health Centre', lat: 44.3814, lon: -79.6577 },
-    { icon: '🚉', name: 'Allandale Waterfront', label: 'Allandale Waterfront GO, Barrie', lat: 44.3746, lon: -79.6767 },
-    { icon: '⛰️', name: 'Big Bay Point',      label: 'Big Bay Point',               lat: 44.3450, lon: -79.6250 },
-    { icon: '🏘️', name: 'Painswick',          label: 'Painswick, Barrie',           lat: 44.3450, lon: -79.6650 },
-    { icon: '🌊', name: 'Innisfil (Alcona)',  label: 'Alcona, Innisfil',            lat: 44.3050, lon: -79.6550 },
-    { icon: '🛖', name: 'Angus',              label: 'Angus, ON',                   lat: 44.3230, lon: -79.8830 },
-    { icon: '🌲', name: 'Midhurst',           label: 'Midhurst, ON',                lat: 44.4230, lon: -79.7280 },
-    { icon: '🌾', name: 'Oro-Medonte',        label: 'Oro-Medonte, ON',             lat: 44.4700, lon: -79.5950 },
+    { id: 'downtown',   icon: '🏰', name: 'Downtown Barrie',    label: 'Downtown Barrie',            lat: 44.3894, lon: -79.6903 },
+    { id: 'centennial', icon: '🏖️', name: 'Centennial Beach',   label: 'Centennial Beach, Barrie',    lat: 44.3855, lon: -79.6822 },
+    { id: 'molson',     icon: '🏟️', name: 'Molson Centre',      label: 'Barrie Molson Centre',        lat: 44.3902, lon: -79.6870 },
+    { id: 'georgian',   icon: '🎓', name: 'Georgian College',   label: 'Georgian College, Barrie',    lat: 44.3765, lon: -79.6608 },
+    { id: 'rvh',        icon: '⚕️', name: 'RVH',                label: 'Royal Victoria Regional Health Centre', lat: 44.3814, lon: -79.6577 },
+    { id: 'allandale',  icon: '🚉', name: 'Allandale Waterfront', label: 'Allandale Waterfront GO, Barrie', lat: 44.3746, lon: -79.6767 },
+    { id: 'bigbaypoint',icon: '⛰️', name: 'Big Bay Point',      label: 'Big Bay Point',               lat: 44.3450, lon: -79.6250 },
+    { id: 'painswick',  icon: '🏘️', name: 'Painswick',          label: 'Painswick, Barrie',           lat: 44.3450, lon: -79.6650 },
+    { id: 'innisfil',   icon: '🌊', name: 'Innisfil (Alcona)',  label: 'Alcona, Innisfil',            lat: 44.3050, lon: -79.6550 },
+    { id: 'angus',      icon: '🛖', name: 'Angus',              label: 'Angus, ON',                   lat: 44.3230, lon: -79.8830 },
+    { id: 'midhurst',   icon: '🌲', name: 'Midhurst',           label: 'Midhurst, ON',                lat: 44.4230, lon: -79.7280 },
+    { id: 'oromedonte', icon: '🌾', name: 'Oro-Medonte',        label: 'Oro-Medonte, ON',             lat: 44.4700, lon: -79.5950 },
   ];
+  const DISCOVERY_RADIUS_M = 500;
+  const DISCOVERY_KEY = 'barrieHoldDiscovered';
+
+  function loadDiscovered() {
+    try {
+      const raw = localStorage.getItem(DISCOVERY_KEY);
+      const arr = raw ? JSON.parse(raw) : ['downtown'];
+      return new Set(Array.isArray(arr) ? arr : ['downtown']);
+    } catch (e) {
+      return new Set(['downtown']);
+    }
+  }
+  function saveDiscovered() {
+    try { localStorage.setItem(DISCOVERY_KEY, JSON.stringify([...state.discovered])); }
+    catch (e) { /* storage unavailable — discoveries just won't persist */ }
+  }
 
   function renderFastTravelChips() {
     const row = document.getElementById('fastTravelRow');
     row.innerHTML = '';
     FAST_TRAVEL_PLACES.forEach(place => {
+      const known = state.discovered.has(place.id);
       const chip = document.createElement('div');
-      const isActive = state.to && Math.abs(state.to.lat - place.lat) < 1e-6 && Math.abs(state.to.lon - place.lon) < 1e-6;
-      chip.className = 'ft-chip' + (isActive ? ' ft-active' : '');
-      chip.innerHTML = `<span class="ft-icon">${place.icon}</span>${place.name}`;
-      chip.title = 'Fast travel to ' + place.name;
-      chip.addEventListener('click', () => {
-        document.getElementById('toInput').value = place.label;
-        selectPlace('to', { lat: place.lat, lon: place.lon, label: place.label });
-        renderFastTravelChips();
-        if (state.from) computeAndRender();
-        else document.getElementById('hint').textContent = 'Destination set — now choose where you set out from.';
-      });
+      const isActive = known && state.to && Math.abs(state.to.lat - place.lat) < 1e-6 && Math.abs(state.to.lon - place.lon) < 1e-6;
+      chip.className = 'ft-chip' + (isActive ? ' ft-active' : '') + (known ? '' : ' ft-locked');
+      if (known) {
+        chip.innerHTML = `<span class="ft-icon">${place.icon}</span>${place.name}`;
+        chip.title = 'Fast travel to ' + place.name;
+        chip.addEventListener('click', () => {
+          document.getElementById('toInput').value = place.label;
+          selectPlace('to', { lat: place.lat, lon: place.lon, label: place.label });
+          renderFastTravelChips();
+          if (state.from) computeAndRender();
+          else document.getElementById('hint').textContent = 'Destination set — now choose where you set out from.';
+        });
+      } else {
+        chip.innerHTML = `<span class="ft-icon">🔒</span>???`;
+        chip.title = 'Undiscovered — travel near this place with a journey underway to reveal it.';
+        chip.addEventListener('click', () => {
+          document.getElementById('hint').textContent = 'That place hasn\u2019t been discovered yet — travel near it during a journey to reveal it.';
+        });
+      }
       row.appendChild(chip);
     });
   }
   renderFastTravelChips();
+
+  function addKnownPlaceMarker(place) {
+    if (knownPlaceMarkers[place.id]) return;
+    const marker = L.marker([place.lat, place.lon], { icon: KNOWN_PLACE_ICON }).addTo(knownPlacesLayer);
+    marker.bindTooltip(`${place.icon} ${place.name}`, { className: 'atlas-tip', direction: 'top', offset: [0,-24] });
+    marker.on('click', () => {
+      document.getElementById('toInput').value = place.label;
+      selectPlace('to', { lat: place.lat, lon: place.lon, label: place.label });
+      renderFastTravelChips();
+      if (state.from) computeAndRender();
+    });
+    knownPlaceMarkers[place.id] = marker;
+  }
+  FAST_TRAVEL_PLACES.forEach(place => { if (state.discovered.has(place.id)) addKnownPlaceMarker(place); });
+
+  const discoveryQueue = [];
+  let bannerShowing = false;
+  function announceDiscovery(name) {
+    discoveryQueue.push(name);
+    if (!bannerShowing) showNextDiscovery();
+  }
+  function showNextDiscovery() {
+    if (!discoveryQueue.length) { bannerShowing = false; return; }
+    bannerShowing = true;
+    const name = discoveryQueue.shift();
+    const banner = document.getElementById('discoveryBanner');
+    document.getElementById('discoveryName').textContent = name;
+    banner.classList.add('show');
+    setTimeout(() => {
+      banner.classList.remove('show');
+      setTimeout(showNextDiscovery, 500);
+    }, 3000);
+  }
+
+  function discoverNearby(lat, lon) {
+    let foundAny = false;
+    FAST_TRAVEL_PLACES.forEach(place => {
+      if (state.discovered.has(place.id)) return;
+      const distM = haversineKm({ lat, lon }, { lat: place.lat, lon: place.lon }) * 1000;
+      if (distM <= DISCOVERY_RADIUS_M) {
+        state.discovered.add(place.id);
+        addKnownPlaceMarker(place);
+        announceDiscovery(place.name);
+        foundAny = true;
+      }
+    });
+    if (foundAny) { saveDiscovered(); renderFastTravelChips(); }
+  }
+
+  // Quietly check what's nearby the moment the atlas opens, if permission already granted.
+  if (navigator.geolocation) {
+    navigator.geolocation.getCurrentPosition(
+      (p) => discoverNearby(p.coords.latitude, p.coords.longitude),
+      () => { /* no permission yet — discoveries will happen once a journey begins */ },
+      { maximumAge: 60000, timeout: 4000 }
+    );
+  }
 
   function selectPlace(side, place) {
     if (state[side] && state[side].marker) map.removeLayer(state[side].marker);
@@ -1010,6 +1149,7 @@
         }
         map.setView([lat, lon], Math.max(map.getZoom(), 16), { animate: true });
         peekPanel();
+        discoverNearby(lat, lon);
         const statusEl = document.getElementById('navStatus');
         if (statusEl) statusEl.textContent = 'Tracking your position along the road…';
       },
