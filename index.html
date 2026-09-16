@@ -313,6 +313,19 @@
     border-style: dashed;
     opacity: 0.65;
   }
+  .ft-chip.ft-add {
+    background: transparent;
+    color: var(--gold);
+    border-style: dashed;
+    border-color: var(--gold);
+    font-weight: 700;
+  }
+  .ft-chip.ft-add.ft-waiting {
+    background: var(--accent-red);
+    color: #ecdcb2;
+    border-color: var(--leather-dark);
+  }
+  #map.placing-mode { cursor: crosshair; }
 
   .row { display: flex; gap: 8px; margin-bottom: 8px; }
   .field {
@@ -803,6 +816,7 @@
   ];
   const DISCOVERY_RADIUS_M = 500;
   const DISCOVERY_KEY = 'barrieHoldDiscovered';
+  const CUSTOM_KEY = 'barrieHoldCustomPlaces';
 
   function loadDiscovered() {
     try {
@@ -817,11 +831,25 @@
     try { localStorage.setItem(DISCOVERY_KEY, JSON.stringify([...state.discovered])); }
     catch (e) { /* storage unavailable — discoveries just won't persist */ }
   }
+  function loadCustomPlaces() {
+    try {
+      const raw = localStorage.getItem(CUSTOM_KEY);
+      const arr = raw ? JSON.parse(raw) : [];
+      return Array.isArray(arr) ? arr : [];
+    } catch (e) { return []; }
+  }
+  function saveCustomPlaces() {
+    try { localStorage.setItem(CUSTOM_KEY, JSON.stringify(PLACES.filter(p => p.custom))); }
+    catch (e) { /* storage unavailable — custom places just won't persist */ }
+  }
+
+  let PLACES = FAST_TRAVEL_PLACES.concat(loadCustomPlaces());
+  PLACES.forEach(p => { if (p.custom) state.discovered.add(p.id); });
 
   function renderFastTravelChips() {
     const row = document.getElementById('fastTravelRow');
     row.innerHTML = '';
-    FAST_TRAVEL_PLACES.forEach(place => {
+    PLACES.forEach(place => {
       const known = state.discovered.has(place.id);
       const chip = document.createElement('div');
       const isActive = known && state.to && Math.abs(state.to.lat - place.lat) < 1e-6 && Math.abs(state.to.lon - place.lon) < 1e-6;
@@ -845,6 +873,40 @@
       }
       row.appendChild(chip);
     });
+
+    const addChip = document.createElement('div');
+    addChip.className = 'ft-chip ft-add';
+    addChip.innerHTML = `<span class="ft-icon">＋</span>Add Place`;
+    addChip.title = 'Save your searched destination as a fast-travel point';
+    addChip.addEventListener('click', handleAddPlaceChip);
+    row.appendChild(addChip);
+  }
+
+  function handleAddPlaceChip() {
+    if (!state.to) {
+      document.getElementById('hint').style.display = 'block';
+      document.getElementById('hint').textContent = 'Search an address in "Journey To" first, then tap ＋ Add Place to save it.';
+      return;
+    }
+    const defaultName = state.to.label.split(',')[0].trim();
+    const name = window.prompt('Name this fast-travel location:', defaultName);
+    if (!name || !name.trim()) return;
+    const place = {
+      id: 'custom-' + Date.now(),
+      icon: '📍',
+      name: name.trim(),
+      label: state.to.label,
+      lat: state.to.lat,
+      lon: state.to.lon,
+      custom: true
+    };
+    PLACES.push(place);
+    state.discovered.add(place.id);
+    addKnownPlaceMarker(place);
+    saveCustomPlaces();
+    saveDiscovered();
+    renderFastTravelChips();
+    announceDiscovery(place.name, 'Landmark Recorded');
   }
   renderFastTravelChips();
 
@@ -860,20 +922,21 @@
     });
     knownPlaceMarkers[place.id] = marker;
   }
-  FAST_TRAVEL_PLACES.forEach(place => { if (state.discovered.has(place.id)) addKnownPlaceMarker(place); });
+  PLACES.forEach(place => { if (state.discovered.has(place.id)) addKnownPlaceMarker(place); });
 
   const discoveryQueue = [];
   let bannerShowing = false;
-  function announceDiscovery(name) {
-    discoveryQueue.push(name);
+  function announceDiscovery(name, label) {
+    discoveryQueue.push({ name, label: label || 'Location Discovered' });
     if (!bannerShowing) showNextDiscovery();
   }
   function showNextDiscovery() {
     if (!discoveryQueue.length) { bannerShowing = false; return; }
     bannerShowing = true;
-    const name = discoveryQueue.shift();
+    const item = discoveryQueue.shift();
     const banner = document.getElementById('discoveryBanner');
-    document.getElementById('discoveryName').textContent = name;
+    banner.querySelector('.db-label').textContent = item.label;
+    document.getElementById('discoveryName').textContent = item.name;
     banner.classList.add('show');
     setTimeout(() => {
       banner.classList.remove('show');
@@ -883,7 +946,7 @@
 
   function discoverNearby(lat, lon) {
     let foundAny = false;
-    FAST_TRAVEL_PLACES.forEach(place => {
+    PLACES.forEach(place => {
       if (state.discovered.has(place.id)) return;
       const distM = haversineKm({ lat, lon }, { lat: place.lat, lon: place.lon }) * 1000;
       if (distM <= DISCOVERY_RADIUS_M) {
