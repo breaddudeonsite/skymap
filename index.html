@@ -239,6 +239,40 @@
     opacity: 0.6;
   }
 
+  .fasttravel-row {
+    display: flex;
+    gap: 7px;
+    overflow-x: auto;
+    padding: 2px 2px 10px;
+    margin-bottom: 4px;
+    scrollbar-width: none;
+  }
+  .fasttravel-row::-webkit-scrollbar { display: none; }
+  .ft-chip {
+    flex: 0 0 auto;
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    padding: 6px 11px 6px 8px;
+    border-radius: 999px;
+    border: 1.5px solid var(--panel-border);
+    background: var(--bg);
+    color: var(--ink);
+    font-family: 'Cinzel', serif;
+    font-size: 11px;
+    letter-spacing: 0.02em;
+    white-space: nowrap;
+    cursor: pointer;
+  }
+  .ft-chip .ft-icon { font-size: 13px; line-height: 1; }
+  .ft-chip:active { transform: translateY(1px); }
+  .ft-chip.ft-active {
+    background: var(--gold);
+    color: var(--leather-dark);
+    border-color: var(--leather-dark);
+    font-weight: 700;
+  }
+
   .row { display: flex; gap: 8px; margin-bottom: 8px; }
   .field {
     flex: 1;
@@ -501,6 +535,8 @@
   <div id="panel">
     <div class="panel-handle" id="panelHandle"><div class="bar"></div></div>
 
+    <div class="fasttravel-row" id="fastTravelRow"></div>
+
     <div class="row">
       <div class="field">
         <label>DEPART FROM</label>
@@ -693,6 +729,43 @@
   wireSearchField(document.getElementById('fromInput'), document.getElementById('fromSuggest'), 'from');
   wireSearchField(document.getElementById('toInput'), document.getElementById('toSuggest'), 'to');
 
+  // ---------------- Fast travel: known holds & landmarks ----------------
+  const FAST_TRAVEL_PLACES = [
+    { icon: '🏰', name: 'Downtown Barrie',    label: 'Downtown Barrie',            lat: 44.3894, lon: -79.6903 },
+    { icon: '🏖️', name: 'Centennial Beach',   label: 'Centennial Beach, Barrie',    lat: 44.3855, lon: -79.6822 },
+    { icon: '🏟️', name: 'Molson Centre',      label: 'Barrie Molson Centre',        lat: 44.3902, lon: -79.6870 },
+    { icon: '🎓', name: 'Georgian College',   label: 'Georgian College, Barrie',    lat: 44.3765, lon: -79.6608 },
+    { icon: '⚕️', name: 'RVH',                label: 'Royal Victoria Regional Health Centre', lat: 44.3814, lon: -79.6577 },
+    { icon: '🚉', name: 'Allandale Waterfront', label: 'Allandale Waterfront GO, Barrie', lat: 44.3746, lon: -79.6767 },
+    { icon: '⛰️', name: 'Big Bay Point',      label: 'Big Bay Point',               lat: 44.3450, lon: -79.6250 },
+    { icon: '🏘️', name: 'Painswick',          label: 'Painswick, Barrie',           lat: 44.3450, lon: -79.6650 },
+    { icon: '🌊', name: 'Innisfil (Alcona)',  label: 'Alcona, Innisfil',            lat: 44.3050, lon: -79.6550 },
+    { icon: '🛖', name: 'Angus',              label: 'Angus, ON',                   lat: 44.3230, lon: -79.8830 },
+    { icon: '🌲', name: 'Midhurst',           label: 'Midhurst, ON',                lat: 44.4230, lon: -79.7280 },
+    { icon: '🌾', name: 'Oro-Medonte',        label: 'Oro-Medonte, ON',             lat: 44.4700, lon: -79.5950 },
+  ];
+
+  function renderFastTravelChips() {
+    const row = document.getElementById('fastTravelRow');
+    row.innerHTML = '';
+    FAST_TRAVEL_PLACES.forEach(place => {
+      const chip = document.createElement('div');
+      const isActive = state.to && Math.abs(state.to.lat - place.lat) < 1e-6 && Math.abs(state.to.lon - place.lon) < 1e-6;
+      chip.className = 'ft-chip' + (isActive ? ' ft-active' : '');
+      chip.innerHTML = `<span class="ft-icon">${place.icon}</span>${place.name}`;
+      chip.title = 'Fast travel to ' + place.name;
+      chip.addEventListener('click', () => {
+        document.getElementById('toInput').value = place.label;
+        selectPlace('to', { lat: place.lat, lon: place.lon, label: place.label });
+        renderFastTravelChips();
+        if (state.from) computeAndRender();
+        else document.getElementById('hint').textContent = 'Destination set — now choose where you set out from.';
+      });
+      row.appendChild(chip);
+    });
+  }
+  renderFastTravelChips();
+
   function selectPlace(side, place) {
     if (state[side] && state[side].marker) map.removeLayer(state[side].marker);
     const icon = side === 'from' ? FROM_ICON : TO_ICON;
@@ -737,6 +810,7 @@
     if (f) selectPlace('to', { lat: f.lat, lon: f.lon, label: f.label });
     document.getElementById('fromInput').value = t ? t.label : '';
     document.getElementById('toInput').value = f ? f.label : '';
+    renderFastTravelChips();
     if (state.from && state.to) computeAndRender();
   });
 
@@ -914,6 +988,8 @@
     clearRouteLayers();
     document.getElementById('results').innerHTML = '';
     document.getElementById('hint').style.display = 'block';
+    document.getElementById('hint').textContent = 'Tip: search a restaurant and a delivery address, then chart the course.';
+    renderFastTravelChips();
     map.setView(CENTER, 12);
   });
 
